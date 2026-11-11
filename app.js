@@ -2,7 +2,7 @@ import { auth, db } from "./firebase.js";
 import { signInWithEmailAndPassword, sendPasswordResetEmail, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
 import { ref, get, push, set, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
 
-const EXCLUSIVE_UID = "aBRccJ156ORXITkBWbC2JZqwPJJ2";
+const EXCLUSIVE_UID = "aBRccJ156ORXITkBWbC2JZqwPJJ2"; // यह डेटाबेस पाथ के लिए जरूरी है
 const EXCLUSIVE_EMAIL = "jaiprakash9129000+1@gmail.com";
 const ADMIN_EMAIL = "randigital4@gmail.com";
 const $ = id => document.getElementById(id);
@@ -17,14 +17,12 @@ $("loginForm").addEventListener("submit", async e => {
     const credential = await signInWithEmailAndPassword(auth, $("email").value.trim(), $("password").value);
     await credential.user.getIdToken(true);
     
-    // यहाँ emailVerified की जाँच हटा दी गई है ताकि लॉगिन तुरंत हो सके
     if (!authorized(credential.user)) {
       await signOut(auth);
       throw new Error("Access Denied: यह ईमेल/यूजर इस पोर्टल के लिए अधिकृत नहीं है।");
     }
     $("loginMessage").textContent = "";
   } catch (err) { 
-    // त्रुटि संदेशों को स्पष्ट करना
     if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
       $("loginMessage").textContent = "ईमेल या पासवर्ड गलत है।";
     } else if (err.code === "auth/too-many-requests") {
@@ -50,16 +48,16 @@ $("forgotPasswordBtn").addEventListener("click", async () => {
     msg.style.color = "#ff7474";
     msg.textContent = err.code === "auth/invalid-email"
       ? "ईमेल का format सही नहीं है।"
-      : "Password reset email नहीं भेजा जा सका। Firebase Authentication की Email/Password और authorized domain settings जाँचें।";
+      : "Password reset email नहीं भेजा जा सका। Firebase settings जाँचें।";
   }
 });
 
 $("logoutBtn").addEventListener("click", () => signOut(auth));
 
-// अपडेटेड authorized फंक्शन (emailVerified हटा दिया गया है)
+// यहाँ हमने UID की सख्त जाँच हटा दी है ताकि सिर्फ ईमेल से लॉगिन हो सके
 function authorized(user) {
   return (
-    (user.uid === EXCLUSIVE_UID && user.email === EXCLUSIVE_EMAIL) ||
+    user.email === EXCLUSIVE_EMAIL ||
     user.email === ADMIN_EMAIL
   );
 }
@@ -77,7 +75,6 @@ onAuthStateChanged(auth, async user => {
   try {
     await user.getIdToken(true);
     
-    // यहाँ भी authorized चेक अपडेट हो गया है
     if (!authorized(user)) { 
       await signOut(auth); 
       $("loginMessage").textContent = "Access Denied: आपका अकाउंट अधिकृत नहीं है।"; 
@@ -121,7 +118,7 @@ function usdt(v){return Number(v||0).toLocaleString("en-US",{minimumFractionDigi
 async function loadSummary(){
   const snap = await get(ref(db, `portal/profiles/${EXCLUSIVE_UID}/summary`));
   if (!snap.exists()) { 
-    console.warn("Portal summary is not populated yet; map existing business records before launch."); 
+    console.warn("Portal summary is not populated yet."); 
     return; 
   }
   const s=snap.val();
@@ -145,13 +142,12 @@ $("withdrawForm").addEventListener("submit", async e=>{
   if (!$("confirmWithdrawal").checked) {msg.textContent="Please confirm the withdrawal details.";return;}
   try {
     const user=auth.currentUser;
-    // यहाँ भी emailVerified हटा दिया गया है
-    if (!user || user.uid!==EXCLUSIVE_UID || user.email!==EXCLUSIVE_EMAIL) throw new Error("Access denied.");
+    if (!user || !authorized(user)) throw new Error("Access denied.");
     const summarySnap=await get(ref(db,`portal/profiles/${EXCLUSIVE_UID}/summary`));
     const available=Number(summarySnap.val()?.availableBalance||0);
     if(amount>available) throw new Error("Requested amount is greater than the displayed available balance.");
     const reqRef=push(ref(db,`portal/withdrawals/${EXCLUSIVE_UID}`));
-    await set(reqRef,{requestId:reqRef.key,uid:EXCLUSIVE_UID,userName:"Jai Prakash",userEmail:EXCLUSIVE_EMAIL,amount,walletAddress:wallet,network:"BEP20",status:"PENDING",createdAt:serverTimestamp()});
+    await set(reqRef,{requestId:reqRef.key,uid:user.uid,userName:"Jai Prakash",userEmail:EXCLUSIVE_EMAIL,amount,walletAddress:wallet,network:"BEP20",status:"PENDING",createdAt:serverTimestamp()});
     msg.textContent="Request submitted. Request ID: "+reqRef.key;
     $("withdrawForm").reset(); await loadUserWithdrawals();
   } catch(err) {msg.textContent=err.message||"Could not submit request.";}
