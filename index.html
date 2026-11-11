@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="hi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#08111f">
+  <title>RND | Exclusive Business Portal</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="#"><span class="brand-mark">R</span><span><b>RND</b><small>EXCLUSIVE BUSINESS PORTAL</small></span></a>
+      <div class="top-actions"><span id="connection" class="status"><i></i> Connecting</span><button id="logoutBtn" class="btn btn-ghost hidden">Logout</button></div>
+    </header>
+
+    <section id="loginView" class="login-wrap">
+      <div class="login-copy">
+        <span class="eyebrow">PRIVATE ACCESS • BEP20 SETTLEMENT</span>
+        <h1>Your business.<br><span>Your visibility.</span></h1>
+        <p>Five-level business tracking, commission records and secure USDT withdrawal management.</p>
+        <div class="login-points"><span>✓ Private authorized access</span><span>✓ Five-level reporting</span><span>✓ Admin-reviewed withdrawals</span></div>
+      </div>
+      <form id="loginForm" class="login-card">
+        <div class="card-icon">↗</div><h2>Secure login</h2><p>Sign in with your authorized account.</p>
+        <label>Email address</label><input id="email" type="email" autocomplete="username" placeholder="Enter authorized email" required>
+        <label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="Your password" required>
+        <button class="btn btn-primary full" type="submit">Continue securely <span>→</span></button>
+        <p id="loginMessage" class="message" role="alert"></p>
+        <small class="muted">Registration is disabled. Access is granted only to pre-authorized accounts.</small>
+      </form>
+    </section>
+
+    <section id="appView" class="hidden">
+      <div class="welcome-row"><div><span class="eyebrow" id="roleLabel">PRIVATE DASHBOARD</span><h1 id="welcomeTitle">Welcome back</h1><p id="welcomeSubtitle">Your eligible business overview</p></div><div class="date-chip"><small>BUSINESS TRACKING FROM</small><b>12 NOV 2026 • 00:00 IST</b></div></div>
+      <div id="cutoffNotice" class="notice"><b>Important:</b> Your special 10% business commission tracking starts from 12 November 2026. Business generated before this date is not included.</div>
+
+      <nav id="userNav" class="nav hidden">
+        <button class="nav-item active" data-panel="overview">Overview</button><button class="nav-item" data-panel="team">My Team</button><button class="nav-item" data-panel="business">Business History</button><button class="nav-item" data-panel="commissions">Commission History</button><button class="nav-item" data-panel="withdrawals">USDT Withdrawals</button>
+      </nav>
+      <nav id="adminNav" class="nav hidden">
+        <button class="nav-item active" data-panel="overview">Overview</button><button class="nav-item" data-panel="business">Business Reports</button><button class="nav-item" data-panel="commissions">Commission Ledger</button><button class="nav-item" data-panel="withdrawals">Withdrawal Requests</button><button class="nav-item" data-panel="audit">Audit Logs</button>
+      </nav>
+
+      <section id="overviewPanel" class="panel">
+        <div class="section-heading"><div><h2>Business overview</h2><p>Eligible activity only • USDT</p></div><span class="pill green">10% commission</span></div>
+        <div class="stats-grid">
+          <article class="stat-card"><span>Eligible total business</span><strong id="totalBusiness">—</strong><small>Since 12 Nov 2026</small></article>
+          <article class="stat-card"><span>Total commission earned</span><strong id="totalCommission">—</strong><small>10% of eligible business</small></article>
+          <article class="stat-card"><span>Available balance</span><strong id="availableBalance">—</strong><small>Available to request</small></article>
+          <article class="stat-card"><span>Pending withdrawal</span><strong id="pendingAmount">—</strong><small>Reserved amount</small></article>
+          <article class="stat-card"><span>Total withdrawn</span><strong id="totalWithdrawn">—</strong><small>Admin-confirmed payments</small></article>
+          <article class="stat-card"><span>Total team members</span><strong id="teamCount">—</strong><small>Existing referral tree</small></article>
+        </div>
+        <div class="section-heading level-heading"><div><h2>Five-level business</h2><p>Level-wise eligible totals</p></div></div>
+        <div id="levelCards" class="level-grid"></div>
+      </section>
+
+      <section id="teamPanel" class="panel hidden"><div class="section-heading"><div><h2>My referral team</h2><p>Existing team structure with eligible business from cutoff date</p></div></div><div id="teamContent" class="empty-state">Team data will appear after the existing Firebase referral structure is mapped.</div></section>
+      <section id="businessPanel" class="panel hidden"><div class="section-heading"><div><h2>Business history</h2><p>Successful eligible transactions only</p></div></div><div id="businessContent" class="table-wrap"><p class="empty-state">Business records will appear after database mapping.</p></div></section>
+      <section id="commissionsPanel" class="panel hidden"><div class="section-heading"><div><h2>Commission history</h2><p>Permanent commission ledger</p></div></div><div id="commissionContent" class="table-wrap"><p class="empty-state">Commission ledger will appear after backend integration.</p></div></section>
+      <section id="withdrawalsPanel" class="panel hidden">
+        <div class="section-heading"><div><h2>USDT withdrawals</h2><p>BNB Smart Chain • BEP20</p></div></div>
+        <div class="withdraw-layout"><form id="withdrawForm" class="form-card"><h3>Request a withdrawal</h3><label>Amount (USDT)</label><input id="withdrawAmount" type="number" min="0.01" step="0.01" placeholder="0.00" required><label>BE P20 wallet address</label><input id="walletAddress" type="text" minlength="42" maxlength="42" placeholder="0x..." required><div class="network-line"><span>Network</span><b>BNB Smart Chain (BEP20)</b></div><label class="checkline"><input id="confirmWithdrawal" type="checkbox" required> I confirm the amount, wallet address and BEP20 network.</label><button class="btn btn-primary full" type="submit">Submit withdrawal request</button><p id="withdrawMessage" class="message"></p></form><aside class="balance-card"><span>Available balance</span><strong id="withdrawAvailable">—</strong><small>Requests are reviewed by the authorized admin. Cryptocurrency is sent manually; no automatic transfer is made.</small></aside></div>
+        <div class="section-heading"><div><h2>Withdrawal history</h2></div></div><div id="withdrawalHistory" class="table-wrap"><p class="empty-state">No withdrawal records loaded.</p></div>
+      </section>
+      <section id="auditPanel" class="panel hidden"><div class="section-heading"><div><h2>Admin audit logs</h2><p>Recorded administrative actions</p></div></div><div id="auditContent" class="empty-state">Audit logs will appear after backend mapping.</div></section>
+      <footer>RND Exclusive Portal <span>•</span> Private financial dashboard</footer>
+    </section>
+  </main>
+  <script type="module" src="/js/app.js"></script>
+</body></html>

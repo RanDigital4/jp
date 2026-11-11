@@ -1,0 +1,14 @@
+{
+  "name": "rnd-exclusive-business-portal",
+  "version": "1.1.0",
+  "private": true,
+  "description": "RND exclusive business portal without Cloud Functions",
+  "scripts": {
+    "deploy": "firebase deploy --only hosting,database",
+    "deploy:rules": "firebase deploy --only database",
+    "deploy:hosting": "firebase deploy --only hosting"
+  },
+  "devDependencies": {
+    "firebase-tools": "^14.15.2"
+  }
+}
