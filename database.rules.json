@@ -2,20 +2,20 @@
   "rules": {
     ".read": false,
     ".write": false,
+    "users": {
+      "aBRccJ156ORXITkBWbC2JZqwPJJ2": {
+        ".read": "auth != null && (auth.uid === 'aBRccJ156ORXITkBWbC2JZqwPJJ2' || auth.token.email === 'randigital4@gmail.com')",
+        ".write": false
+      }
+    },
     "portal": {
-      ".read": "auth != null && auth.token.email === 'randigital4@gmail.com' && auth.token.email_verified === true",
+      ".read": "auth != null && auth.token.email === 'randigital4@gmail.com'",
       ".write": false,
-      "profiles": {
-        "$uid": {
-          ".read": "auth != null && ((auth.uid === $uid && auth.uid === 'aBRccJ156ORXITkBWbC2JZqwPJJ2' && auth.token.email === 'jaiprakash9129000+1@gmail.com' && auth.token.email_verified === true) || (auth.token.email === 'randigital4@gmail.com' && auth.token.email_verified === true))",
-          ".write": false
-        }
-      },
       "withdrawals": {
         "$uid": {
-          ".read": "auth != null && ((auth.uid === $uid && auth.uid === 'aBRccJ156ORXITkBWbC2JZqwPJJ2' && auth.token.email === 'jaiprakash9129000+1@gmail.com' && auth.token.email_verified === true) || (auth.token.email === 'randigital4@gmail.com' && auth.token.email_verified === true))",
+          ".read": "auth != null && ((auth.uid === $uid && $uid === 'aBRccJ156ORXITkBWbC2JZqwPJJ2') || (auth.token.email === 'randigital4@gmail.com'))",
           "$requestId": {
-            ".write": "auth != null && ((auth.token.email === 'randigital4@gmail.com' && auth.token.email_verified === true) || (auth.uid === $uid && auth.uid === 'aBRccJ156ORXITkBWbC2JZqwPJJ2' && auth.token.email === 'jaiprakash9129000+1@gmail.com' && auth.token.email_verified === true && !data.exists() && newData.child('uid').val() === auth.uid && newData.child('status').val() === 'PENDING' && newData.child('amount').isNumber() && newData.child('amount').val() > 0 && newData.child('network').val() === 'BEP20' && newData.child('walletAddress').isString() && newData.child('walletAddress').val().matches(/^0x[a-fA-F0-9]{40}$/)))"
+            ".write": "auth != null && ((auth.token.email === 'randigital4@gmail.com') || (auth.uid === $uid && $uid === 'aBRccJ156ORXITkBWbC2JZqwPJJ2' && !data.exists() && newData.child('status').val() === 'PENDING' && newData.child('amount').val() >= 50))"
           }
         }
       }
