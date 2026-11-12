@@ -2,9 +2,10 @@ import { auth, db } from "./firebase.js";
 import { signInWithEmailAndPassword, sendPasswordResetEmail, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
 import { ref, get, push, set, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
 
-const EXCLUSIVE_UID = "aBRccJ156ORXITkBWbC2JZqwPJJ2"; // डेटाबेस पाथ के लिए
+const EXCLUSIVE_UID = "aBRccJ156ORXITkBWbC2JZqwPJJ2"; 
 const EXCLUSIVE_EMAIL = "jaiprakash9129000+1@gmail.com";
 const ADMIN_EMAIL = "randigital4@gmail.com";
+const MIN_WITHDRAWAL = 50; // न्यूनतम विड्रॉल 50 USDT
 const $ = id => document.getElementById(id);
 let currentRole = null;
 
@@ -55,10 +56,7 @@ $("forgotPasswordBtn").addEventListener("click", async () => {
 $("logoutBtn").addEventListener("click", () => signOut(auth));
 
 function authorized(user) {
-  return (
-    user.email === EXCLUSIVE_EMAIL ||
-    user.email === ADMIN_EMAIL
-  );
+  return (user.email === EXCLUSIVE_EMAIL || user.email === ADMIN_EMAIL);
 }
 
 onAuthStateChanged(auth, async user => {
@@ -114,7 +112,6 @@ function bindNavigation() {
 
 function usdt(v){return Number(v||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+" USDT";}
 
-// यहाँ डेटा मैपिंग अपडेट की गई है
 async function loadSummary(){
   // असली डेटा 'users' फोल्डर से आ रहा है
   const snap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
@@ -125,21 +122,26 @@ async function loadSummary(){
   
   const userData = snap.val();
 
-  // बैलेंस और टीम काउंट निकालें
+  // बैलेंस और डायरेक्ट टीम काउंट
   const availableBal = Number(userData.availableReward || 0);
   const directRefs = userData.directReferrals ? Object.keys(userData.directReferrals).length : 0;
 
+  // अगर डेटाबेस में totalBusiness नहीं है, तो 0 दिखेगा
+  const totalBiz = Number(userData.totalBusiness || 0);
+  const totalComm = Number(userData.totalCommission || 0);
+
   // UI में डेटा भरें
-  $("totalBusiness").textContent = usdt(userData.totalBusiness || 0);
-  $("totalCommission").textContent = usdt(userData.totalCommission || 0); 
+  $("totalBusiness").textContent = usdt(totalBiz);
+  $("totalCommission").textContent = usdt(totalComm); 
   $("availableBalance").textContent = usdt(availableBal);
   $("pendingAmount").textContent = usdt(userData.pendingWithdrawal || 0);
   $("totalWithdrawn").textContent = usdt(userData.totalWithdrawn || 0);
-  $("teamCount").textContent = Number(directRefs).toLocaleString();
+  $("teamCount").textContent = Number(userData.totalTeam || directRefs).toLocaleString(); // अगर totalTeam है तो वो, नहीं तो direct refs
   $("withdrawAvailable").textContent = usdt(availableBal);
 
-  // लेवल कार्ड्स (यदि डेटाबेस में levels नहीं हैं, तो 0 दिखेगा)
+  // 5 लेवल का डेटा (डेटाबेस में levels होने पर शो होगा)
   $("levelCards").innerHTML = [1,2,3,4,5].map(n => {
+    // मान लिया गया है कि डेटाबेस में levels/1/business और levels/1/members है
     const lvl = userData.levels && userData.levels[n] ? userData.levels[n] : { business: 0, members: 0 };
     return `<article class="level-card"><span>LEVEL ${n}</span><strong>${usdt(lvl.business)}</strong><small>${Number(lvl.members)} members</small></article>`;
   }).join("");
@@ -150,7 +152,9 @@ $("withdrawForm").addEventListener("submit", async e=>{
   const msg=$("withdrawMessage"); 
   msg.textContent="Submitting request…";
   const amount=Number($("withdrawAmount").value), wallet=$("walletAddress").value.trim();
+  
   if (!Number.isFinite(amount)||amount<=0) {msg.textContent="Enter a valid amount.";return;}
+  if (amount < MIN_WITHDRAWAL) {msg.textContent=`न्यूनतम विड्रॉल राशि ${MIN_WITHDRAWAL} USDT है।`;return;}
   if (!/^0x[a-fA-F0-9]{40}$/.test(wallet)) {msg.textContent="Enter a valid BEP20 wallet address.";return;}
   if (!$("confirmWithdrawal").checked) {msg.textContent="Please confirm the withdrawal details.";return;}
   
@@ -158,7 +162,7 @@ $("withdrawForm").addEventListener("submit", async e=>{
     const user=auth.currentUser;
     if (!user || !authorized(user)) throw new Error("Access denied.");
     
-    // विड्रॉल से पहले असली बैलेंस चेक करें
+    // असली बैलेंस चेक
     const userSnap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
     const available = Number(userSnap.val()?.availableReward || 0);
     
@@ -177,10 +181,12 @@ $("withdrawForm").addEventListener("submit", async e=>{
       createdAt:serverTimestamp()
     });
     
+    msg.style.color = "#31d69a";
     msg.textContent="Request submitted. Request ID: "+reqRef.key;
     $("withdrawForm").reset(); 
     await loadUserWithdrawals();
   } catch(err) {
+    msg.style.color = "#ff7474";
     msg.textContent=err.message||"Could not submit request.";
   }
 });
