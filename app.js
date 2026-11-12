@@ -112,39 +112,61 @@ function bindNavigation() {
 
 function usdt(v){return Number(v||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+" USDT";}
 
+// डेटा पढ़ने का स्मार्ट तरीका
 async function loadSummary(){
-  // असली डेटा 'users' फोल्डर से आ रहा है
-  const snap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
-  if (!snap.exists()) { 
-    console.warn("यूजर का डेटा डेटाबेस में नहीं मिला।"); 
-    return; 
+  try {
+    // यहाँ हम सीधे 'users' फोल्डर से डेटा उठा रहे हैं
+    const snap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
+    if (!snap.exists()) { 
+      console.warn("यूजर का डेटा डेटाबेस में नहीं मिला।"); 
+      return; 
+    }
+    
+    const userData = snap.val();
+
+    // बैलेंस निकालें (availableReward या availableBalance)
+    const availableBal = Number(userData.availableReward || userData.availableBalance || 0);
+    
+    // डायरेक्ट रेफरल्स की गिनती
+    const directRefs = userData.directReferrals ? Object.keys(userData.directReferrals).length : 0;
+    
+    // टोटल टीम (अगर डेटाबेस में totalTeam है तो वो, वरना डायरेक्ट रेफरल्स)
+    const totalTeam = Number(userData.totalTeam || userData.totalTeamMembers || directRefs);
+
+    // बिज़नेस और कमीशन (अगर डेटाबेस में है तो)
+    const totalBiz = Number(userData.totalBusiness || 0);
+    const totalComm = Number(userData.totalCommission || 0);
+
+    // UI में डेटा भरें
+    $("totalBusiness").textContent = usdt(totalBiz);
+    $("totalCommission").textContent = usdt(totalComm); 
+    $("availableBalance").textContent = usdt(availableBal);
+    $("pendingAmount").textContent = usdt(userData.pendingWithdrawal || 0);
+    $("totalWithdrawn").textContent = usdt(userData.totalWithdrawn || 0);
+    $("teamCount").textContent = totalTeam.toLocaleString();
+    $("withdrawAvailable").textContent = usdt(availableBal);
+
+    // 5-लेवल का डेटा (अगर डेटाबेस में 'levels' ऑब्जेक्ट है)
+    $("levelCards").innerHTML = [1,2,3,4,5].map(n => {
+      // अगर डेटाबेस में levels है
+      let lvl = { business: 0, members: 0 };
+      if (userData.levels && userData.levels[n]) {
+        lvl = userData.levels[n];
+      } 
+      // अगर levels नहीं है, लेकिन level1Business जैसा फ्लैट डेटा है
+      else if (userData[`level${n}Business`] || userData[`level${n}Members`]) {
+        lvl = { 
+          business: userData[`level${n}Business`] || 0, 
+          members: userData[`level${n}Members`] || 0 
+        };
+      }
+      
+      return `<article class="level-card"><span>LEVEL ${n}</span><strong>${usdt(lvl.business)}</strong><small>${Number(lvl.members)} members</small></article>`;
+    }).join("");
+
+  } catch (error) {
+    console.error("डेटा लोड करने में समस्या:", error);
   }
-  
-  const userData = snap.val();
-
-  // बैलेंस और डायरेक्ट टीम काउंट
-  const availableBal = Number(userData.availableReward || 0);
-  const directRefs = userData.directReferrals ? Object.keys(userData.directReferrals).length : 0;
-
-  // अगर डेटाबेस में totalBusiness नहीं है, तो 0 दिखेगा
-  const totalBiz = Number(userData.totalBusiness || 0);
-  const totalComm = Number(userData.totalCommission || 0);
-
-  // UI में डेटा भरें
-  $("totalBusiness").textContent = usdt(totalBiz);
-  $("totalCommission").textContent = usdt(totalComm); 
-  $("availableBalance").textContent = usdt(availableBal);
-  $("pendingAmount").textContent = usdt(userData.pendingWithdrawal || 0);
-  $("totalWithdrawn").textContent = usdt(userData.totalWithdrawn || 0);
-  $("teamCount").textContent = Number(userData.totalTeam || directRefs).toLocaleString(); // अगर totalTeam है तो वो, नहीं तो direct refs
-  $("withdrawAvailable").textContent = usdt(availableBal);
-
-  // 5 लेवल का डेटा (डेटाबेस में levels होने पर शो होगा)
-  $("levelCards").innerHTML = [1,2,3,4,5].map(n => {
-    // मान लिया गया है कि डेटाबेस में levels/1/business और levels/1/members है
-    const lvl = userData.levels && userData.levels[n] ? userData.levels[n] : { business: 0, members: 0 };
-    return `<article class="level-card"><span>LEVEL ${n}</span><strong>${usdt(lvl.business)}</strong><small>${Number(lvl.members)} members</small></article>`;
-  }).join("");
 }
 
 $("withdrawForm").addEventListener("submit", async e=>{
@@ -162,13 +184,15 @@ $("withdrawForm").addEventListener("submit", async e=>{
     const user=auth.currentUser;
     if (!user || !authorized(user)) throw new Error("Access denied.");
     
-    // असली बैलेंस चेक
+    // बैलेंस चेक करें
     const userSnap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
-    const available = Number(userSnap.val()?.availableReward || 0);
+    const userData = userSnap.val();
+    const available = Number(userData?.availableReward || userData?.availableBalance || 0);
     
     if(amount > available) throw new Error("Requested amount is greater than the displayed available balance.");
     
-    const reqRef=push(ref(db,`portal/withdrawals/${EXCLUSIVE_UID}`));
+    // पुराने सिस्टम के हिसाब से विड्रॉल रिक्वेस्ट 'withdrawals' फोल्डर में जा रही है
+    const reqRef=push(ref(db,`withdrawals/${EXCLUSIVE_UID}`));
     await set(reqRef,{
       requestId:reqRef.key,
       uid:user.uid,
@@ -191,15 +215,16 @@ $("withdrawForm").addEventListener("submit", async e=>{
   }
 });
 
+// विड्रॉल अब पुराने 'withdrawals' फोल्डर से पढ़ा जाएगा
 async function loadUserWithdrawals(){
-  const snap=await get(ref(db,`portal/withdrawals/${EXCLUSIVE_UID}`));
+  const snap=await get(ref(db,`withdrawals/${EXCLUSIVE_UID}`));
   if(!snap.exists()){$("withdrawalHistory").innerHTML='<p class="empty-state">अभी कोई विड्रॉल रिक्वेस्ट नहीं है।</p>';return;}
   const rows=Object.values(snap.val()).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   $("withdrawalHistory").innerHTML=tableHtml(rows,false);
 }
 
 async function loadAdminRequests(){
-  const snap=await get(ref(db,`portal/withdrawals/${EXCLUSIVE_UID}`));
+  const snap=await get(ref(db,`withdrawals/${EXCLUSIVE_UID}`));
   if(!snap.exists()){$("withdrawalHistory").innerHTML='<p class="empty-state">अभी कोई विड्रॉल रिक्वेस्ट नहीं है।</p>';return;}
   const rows=Object.values(snap.val()).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   $("withdrawalHistory").innerHTML=tableHtml(rows,true);
@@ -220,7 +245,7 @@ document.addEventListener("click",async e=>{
   if(!paid&&!reject)return;
   if(currentRole!=="admin"||auth.currentUser?.email!==ADMIN_EMAIL)return;
   const id=(paid||reject).dataset.paid||(paid||reject).dataset.reject;
-  const itemRef=ref(db,`portal/withdrawals/${EXCLUSIVE_UID}/${id}`);
+  const itemRef=ref(db,`withdrawals/${EXCLUSIVE_UID}/${id}`);
   const snap=await get(itemRef); if(!snap.exists()||snap.val().status!=="PENDING"){alert("यह रिक्वेस्ट पहले ही प्रोसेस हो चुकी है।");return;}
   if(paid){
     const txid=$("tx-"+id).value.trim();
