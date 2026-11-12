@@ -1,14 +1,31 @@
-import { auth, db } from "./firebase.js";
-import { signInWithEmailAndPassword, sendPasswordResetEmail, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
-import { ref, get, push, set, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+import { getDatabase, ref, get, push, set, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
 
+// --- 1. Firebase कॉन्फ़िगरेशन ---
+const firebaseConfig = {
+  apiKey: "AIzaSyAz-TLmOhiy-_vHHmIjW8gyIOqTR_PT9o0",
+  authDomain: "rnd2-70080.firebaseapp.com",
+  databaseURL: "https://rnd2-70080-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "rnd2-70080",
+  storageBucket: "rnd2-70080.firebasestorage.app",
+  messagingSenderId: "468625887938",
+  appId: "1:468625887938:web:5cb4ddbcf31b6fc0a4615b",
+  measurementId: "G-ELVJD5NQKB"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+
+// --- 2. ग्लोबल वेरिएबल्स ---
 const EXCLUSIVE_UID = "aBRccJ156ORXITkBWbC2JZqwPJJ2"; 
 const EXCLUSIVE_EMAIL = "jaiprakash9129000+1@gmail.com";
 const ADMIN_EMAIL = "randigital4@gmail.com";
-const MIN_WITHDRAWAL = 50; // न्यूनतम विड्रॉल 50 USDT
+const MIN_WITHDRAWAL = 50; // न्यूनतम 50 USDT
 const $ = id => document.getElementById(id);
 let currentRole = null;
 
+// --- 3. लॉगिन लॉजिक ---
 $("loginForm").addEventListener("submit", async e => {
   e.preventDefault(); 
   $("loginMessage").style.color = ""; 
@@ -20,14 +37,12 @@ $("loginForm").addEventListener("submit", async e => {
     
     if (!authorized(credential.user)) {
       await signOut(auth);
-      throw new Error("Access Denied: यह ईमेल/यूजर इस पोर्टल के लिए अधिकृत नहीं है।");
+      throw new Error("Access Denied: यह ईमेल/यूजर अधिकृत नहीं है।");
     }
     $("loginMessage").textContent = "";
   } catch (err) { 
     if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
       $("loginMessage").textContent = "ईमेल या पासवर्ड गलत है।";
-    } else if (err.code === "auth/too-many-requests") {
-      $("loginMessage").textContent = "बहुत अधिक प्रयास हुए हैं। कृपया कुछ देर बाद प्रयास करें।";
     } else {
       $("loginMessage").textContent = err.message || "Login failed."; 
     }
@@ -37,19 +52,14 @@ $("loginForm").addEventListener("submit", async e => {
 $("forgotPasswordBtn").addEventListener("click", async () => {
   const email = $("email").value.trim();
   const msg = $("loginMessage");
-  if (!email) {
-    msg.textContent = "पहले अपना registered email लिखें, फिर Forgot password दबाएँ।";
-    return;
-  }
+  if (!email) { msg.textContent = "पहले अपना registered email लिखें।"; return; }
   try {
     await sendPasswordResetEmail(auth, email);
     msg.style.color = "#31d69a";
-    msg.textContent = "यदि यह Firebase में registered email है, तो password reset link उस email पर भेज दिया गया है। Inbox और Spam देखें।";
+    msg.textContent = "Password reset link आपके ईमेल पर भेज दिया गया है।";
   } catch (err) {
     msg.style.color = "#ff7474";
-    msg.textContent = err.code === "auth/invalid-email"
-      ? "ईमेल का format सही नहीं है।"
-      : "Password reset email नहीं भेजा जा सका। Firebase settings जाँचें।";
+    msg.textContent = "Password reset email नहीं भेजा जा सका।";
   }
 });
 
@@ -59,6 +69,7 @@ function authorized(user) {
   return (user.email === EXCLUSIVE_EMAIL || user.email === ADMIN_EMAIL);
 }
 
+// --- 4. ऑथेंटिकेशन स्टेट चेंज ---
 onAuthStateChanged(auth, async user => {
   $("connection").innerHTML = "<i></i> " + (user ? "Authenticated" : "Secure portal");
   if (!user) { 
@@ -71,7 +82,6 @@ onAuthStateChanged(auth, async user => {
   
   try {
     await user.getIdToken(true);
-    
     if (!authorized(user)) { 
       await signOut(auth); 
       $("loginMessage").textContent = "Access Denied: आपका अकाउंट अधिकृत नहीं है।"; 
@@ -91,7 +101,6 @@ onAuthStateChanged(auth, async user => {
     
     bindNavigation();
     await loadSummary();
-    
     if (currentRole === "admin") await loadAdminRequests();
     else await loadUserWithdrawals();
     
@@ -105,47 +114,43 @@ function bindNavigation() {
   document.querySelectorAll(".nav-item").forEach(btn => btn.onclick = async () => {
     document.querySelectorAll(".nav-item").forEach(b=>b.classList.remove("active")); 
     btn.classList.add("active");
-    ["overview","team","business","commissions","withdrawals","audit"].forEach(p=>$ (p+"Panel").classList.toggle("hidden",p!==btn.dataset.panel));
+    ["overview","withdrawals"].forEach(p=>$ (p+"Panel").classList.toggle("hidden",p!==btn.dataset.panel));
     if (btn.dataset.panel==="withdrawals") currentRole==="admin" ? await loadAdminRequests() : await loadUserWithdrawals();
   });
 }
 
 function usdt(v){return Number(v||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+" USDT";}
 
-// स्मार्ट तरीके से डेटा लोड करना (ऑटो-डिटेक्ट)
+// --- 5. डेटा लोड करने का स्मार्ट तरीका ---
 async function loadSummary(){
   let userData = null;
 
-  // 1. पहले 'users' में चेक करें
+  // पहले 'users' में चेक करें
   const userSnap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
   if (userSnap.exists()) {
     userData = userSnap.val();
   } 
-  // 2. अगर 'users' में नहीं मिला, तो 'portal/profiles' में चेक करें
+  // अगर 'users' में नहीं, तो 'portal/profiles' में चेक करें
   else {
     const portalSnap = await get(ref(db, `portal/profiles/${EXCLUSIVE_UID}`));
     if (portalSnap.exists()) {
-      userData = portalSnap.val();
-      // अगर डेटा 'summary' के अंदर है
-      if(userData.summary) userData = userData.summary;
+      userData = portalSnap.val().summary || portalSnap.val();
     }
   }
 
   if (!userData) { 
-    console.warn("यूजर का डेटा डेटाबेस में नहीं मिला। कृपया सुनिश्चित करें कि UID सही है।"); 
+    console.warn("यूजर का डेटा डेटाबेस में नहीं मिला।"); 
     return; 
   }
 
-  // बैलेंस निकालें
+  // बैलेंस और बिजनेस निकालें
   const availableBal = Number(userData.availableReward || userData.availableBalance || 0);
-  
-  // टीम काउंट निकालें (डायरेक्ट रेफरल्स गिनें)
-  const directRefs = userData.directReferrals ? Object.keys(userData.directReferrals).length : 0;
-  const totalTeam = Number(userData.totalTeam || userData.totalTeamMembers || directRefs);
-
-  // बिज़नेस और कमीशन (डिफ़ॉल्ट 0 अगर नहीं है)
   const totalBiz = Number(userData.totalBusiness || userData.totalEligibleBusiness || 0);
   const totalComm = Number(userData.totalCommission || userData.totalCommissionEarned || 0);
+  
+  // टीम काउंट
+  const directRefs = userData.directReferrals ? Object.keys(userData.directReferrals).length : 0;
+  const totalTeam = Number(userData.totalTeam || userData.totalTeamMembers || directRefs);
 
   // UI में डेटा भरें
   $("totalBusiness").textContent = usdt(totalBiz);
@@ -156,23 +161,19 @@ async function loadSummary(){
   $("teamCount").textContent = totalTeam.toLocaleString();
   $("withdrawAvailable").textContent = usdt(availableBal);
 
-  // 5-लेवल का डेटा शो करें
+  // 5-लेवल का डेटा (अलग-अलग फॉर्मेट चेक करेगा)
   $("levelCards").innerHTML = [1,2,3,4,5].map(n => {
     let lvl = { business: 0, members: 0 };
-    
-    // चेक करें कि डेटाबेस में levels किस फॉर्मेट में है
     if (userData.levels && userData.levels[n]) {
       lvl = { business: userData.levels[n].business || 0, members: userData.levels[n].members || 0 };
     } else if (userData[`level${n}Business`] !== undefined) {
       lvl = { business: userData[`level${n}Business`] || 0, members: userData[`level${n}Members`] || 0 };
-    } else if (userData.teamLevels && userData.teamLevels[n]) {
-      lvl = { business: userData.teamLevels[n].business || 0, members: userData.teamLevels[n].members || 0 };
     }
-
     return `<article class="level-card"><span>LEVEL ${n}</span><strong>${usdt(lvl.business)}</strong><small>${Number(lvl.members)} members</small></article>`;
   }).join("");
 }
 
+// --- 6. विड्रॉल लॉजिक (50 USDT लिमिट के साथ) ---
 $("withdrawForm").addEventListener("submit", async e=>{
   e.preventDefault(); 
   const msg=$("withdrawMessage"); 
@@ -182,33 +183,22 @@ $("withdrawForm").addEventListener("submit", async e=>{
   if (!Number.isFinite(amount)||amount<=0) {msg.textContent="Enter a valid amount.";return;}
   if (amount < MIN_WITHDRAWAL) {msg.textContent=`न्यूनतम विड्रॉल राशि ${MIN_WITHDRAWAL} USDT है।`;return;}
   if (!/^0x[a-fA-F0-9]{40}$/.test(wallet)) {msg.textContent="Enter a valid BEP20 wallet address.";return;}
-  if (!$("confirmWithdrawal").checked) {msg.textContent="Please confirm the withdrawal details.";return;}
+  if (!$("confirmWithdrawal").checked) {msg.textContent="Please confirm details.";return;}
   
   try {
     const user=auth.currentUser;
     if (!user || !authorized(user)) throw new Error("Access denied.");
     
-    // बैलेंस दोबारा चेक करें
-    let available = 0;
+    // बैलेंस चेक करें
     const userSnap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
-    if (userSnap.exists()) {
-      available = Number(userSnap.val()?.availableReward || userSnap.val()?.availableBalance || 0);
-    }
+    const available = Number(userSnap.val()?.availableReward || userSnap.val()?.availableBalance || 0);
+    if(amount > available) throw new Error("Requested amount is greater than the available balance.");
     
-    if(amount > available) throw new Error("Requested amount is greater than the displayed available balance.");
-    
-    // विड्रॉल रिक्वेस्ट 'withdrawals' फोल्डर में भेजें (जो आपके रूल्स में है)
+    // विड्रॉल रिक्वेस्ट भेजें
     const reqRef=push(ref(db,`withdrawals/${EXCLUSIVE_UID}`));
     await set(reqRef,{
-      requestId:reqRef.key,
-      uid:user.uid,
-      userName:"Jai Prakash",
-      userEmail:EXCLUSIVE_EMAIL,
-      amount,
-      walletAddress:wallet,
-      network:"BEP20",
-      status:"PENDING",
-      createdAt:serverTimestamp()
+      requestId:reqRef.key, uid:user.uid, userName:"Jai Prakash", userEmail:EXCLUSIVE_EMAIL,
+      amount, walletAddress:wallet, network:"BEP20", status:"PENDING", createdAt:serverTimestamp()
     });
     
     msg.style.color = "#31d69a";
@@ -221,6 +211,7 @@ $("withdrawForm").addEventListener("submit", async e=>{
   }
 });
 
+// --- 7. विड्रॉल हिस्ट्री लोड करना ---
 async function loadUserWithdrawals(){
   const snap=await get(ref(db,`withdrawals/${EXCLUSIVE_UID}`));
   if(!snap.exists()){$("withdrawalHistory").innerHTML='<p class="empty-state">अभी कोई विड्रॉल रिक्वेस्ट नहीं है।</p>';return;}
@@ -236,12 +227,13 @@ async function loadAdminRequests(){
 }
 
 function tableHtml(rows,admin){
-  return `<table class="data-table"><thead><tr><th>Request</th><th>Amount</th><th>Wallet</th><th>Status</th><th>TXID / Action</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.requestId||"—")}<small>${dateText(r.createdAt)}</small></td><td>${usdt(r.amount)}</td><td><span class="wallet">${esc(r.walletAddress||"")}</span><button class="copy-btn" data-copy="${esc(r.walletAddress||"")}">Copy</button></td><td><b class="status-${String(r.status||"").toLowerCase()}">${esc(r.status||"—")}</b></td><td>${admin&&r.status==="PENDING"?`<input class="txid-input" id="tx-${esc(r.requestId)}" placeholder="Blockchain TXID"><button class="mini-btn paid-btn" data-paid="${esc(r.requestId)}">Mark Paid</button><input class="reason-input" id="reason-${esc(r.requestId)}" placeholder="Rejection reason"><button class="mini-btn reject-btn" data-reject="${esc(r.requestId)}">Reject</button>`:esc(r.txid||r.rejectionReason||"—")}</td></tr>`).join("")}</tbody></table>`;
+  return `<table class="data-table"><thead><tr><th>Request</th><th>Amount</th><th>Wallet</th><th>Status</th><th>TXID / Action</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.requestId||"—")}<small>${dateText(r.createdAt)}</small></td><td>${usdt(r.amount)}</td><td><span class="wallet">${esc(r.walletAddress||"")}</span><button class="copy-btn" data-copy="${esc(r.walletAddress||"")}">Copy</button></td><td><b class="status-${String(r.status||"").toLowerCase()}">${esc(r.status||"—")}</b></td><td>${admin&&r.status==="PENDING"?`<input class="txid-input" id="tx-${esc(r.requestId)}" placeholder="TXID"><button class="mini-btn paid-btn" data-paid="${esc(r.requestId)}">Mark Paid</button><input class="reason-input" id="reason-${esc(r.requestId)}" placeholder="Reject Reason"><button class="mini-btn reject-btn" data-reject="${esc(r.requestId)}">Reject</button>`:esc(r.txid||r.rejectionReason||"—")}</td></tr>`).join("")}</tbody></table>`;
 }
 
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function dateText(ts){return ts?new Date(ts).toLocaleString("en-IN",{timeZone:"Asia/Kolkata"}):"Time pending";}
 
+// --- 8. एडमिन एक्शन्स ---
 document.addEventListener("click",async e=>{
   const copy=e.target.closest("[data-copy]");
   if(copy){await navigator.clipboard.writeText(copy.dataset.copy);copy.textContent="Copied";return;}
@@ -252,15 +244,16 @@ document.addEventListener("click",async e=>{
   const id=(paid||reject).dataset.paid||(paid||reject).dataset.reject;
   const itemRef=ref(db,`withdrawals/${EXCLUSIVE_UID}/${id}`);
   const snap=await get(itemRef); if(!snap.exists()||snap.val().status!=="PENDING"){alert("यह रिक्वेस्ट पहले ही प्रोसेस हो चुकी है।");return;}
+  
   if(paid){
     const txid=$("tx-"+id).value.trim();
-    if(txid.length<10){alert("Paid करने से पहले blockchain TXID डालें।");return;}
-    if(!confirm("क्या आपने BEP20 नेटवर्क पर USDT भेज दिया है और TXID सत्यापित है?"))return;
+    if(txid.length<10){alert("Paid करने से पहले TXID डालें।");return;}
+    if(!confirm("क्या आपने USDT भेज दिया है?"))return;
     await update(itemRef,{status:"PAID",txid,processedAt:Date.now(),processedBy:auth.currentUser.uid});
   }else{
     const reason=$("reason-"+id).value.trim();
     if(!reason){alert("Reject करने का कारण लिखें।");return;}
-    if(!confirm("क्या आप इस विड्रॉल रिक्वेस्ट को Reject करना चाहते हैं?"))return;
+    if(!confirm("क्या आप Reject करना चाहते हैं?"))return;
     await update(itemRef,{status:"REJECTED",rejectionReason:reason,processedAt:Date.now(),processedBy:auth.currentUser.uid});
   }
   await loadAdminRequests();
