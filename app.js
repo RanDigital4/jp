@@ -25,6 +25,10 @@ const MIN_WITHDRAWAL = 50; // न्यूनतम 50 USDT
 const $ = id => document.getElementById(id);
 let currentRole = null;
 
+// नए डेटा पाथ (सिर्फ इस वेबसाइट के लिए)
+const PORTAL_COMMISSION_PATH = `special_portal_commission/${EXCLUSIVE_UID}`;
+const PORTAL_WITHDRAWAL_PATH = `special_portal_withdrawals/${EXCLUSIVE_UID}`;
+
 // --- 3. लॉगिन लॉजिक ---
 $("loginForm").addEventListener("submit", async e => {
   e.preventDefault(); 
@@ -121,62 +125,82 @@ function bindNavigation() {
 
 function usdt(v){return Number(v||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+" USDT";}
 
-// --- 5. डेटा लोड करने का सही तरीका (teamBusiness और totalReferrals से) ---
+// --- 5. डेटा लोड करने का सही तरीका (नए डेटा पाथ के साथ) ---
 async function loadSummary(){
+  // पुराने डेटा से सिर्फ टीम बिजनेस और रेफरल उठाएं
   const snap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
-  if (!snap.exists()) { 
-    console.warn("यूजर का डेटा नहीं मिला।"); 
-    return; 
-  }
-  const userData = snap.val();
+  let totalTeamBiz = 0;
+  let totalTeamMembers = 0;
 
-  // 1. बैलेंस
-  const availableBal = Number(userData.availableReward || 0);
-  
-  // 2. टोटल टीम बिजनेस (स्क्रीनशॉट के अनुसार teamBusiness)
-  let totalTeamBiz = Number(userData.teamBusiness || 0);
-  
-  // 3. टोटल रेफरल्स (स्क्रीनशॉट के अनुसार totalReferrals)
-  let totalTeamMembers = Number(userData.totalReferrals || 0);
-
-  // अगर totalReferrals नहीं है तो directReferrals से गिनें
-  if (totalTeamMembers === 0 && userData.directReferrals) {
-    totalTeamMembers = Object.keys(userData.directReferrals).length;
+  if (snap.exists()) {
+    const userData = snap.val();
+    totalTeamBiz = Number(userData.teamBusiness || 0);
+    totalTeamMembers = Number(userData.totalReferrals || 0);
+    if (totalTeamMembers === 0 && userData.directReferrals) {
+      totalTeamMembers = Object.keys(userData.directReferrals).length;
+    }
   }
 
-  // 4. 12 नवंबर के बाद का बिजनेस (अभी यह 20 USDT है। अगर आपके पास कोई अलग फील्ड है तो बताएं। 
-  // फिलहाल हम इसे 20 मान रहे हैं क्योंकि आपने कहा है कि अभी 20 का ही बिजनेस हुआ है)
-  // बाद में इसे डेटाबेस से जोड़ा जा सकता है
-  let newBusinessAfterDate = 20; // यहाँ आप डेटाबेस से new_business_after_12nov जैसा फील्ड जोड़ सकते हैं
-  
-  // 5. पुराना बिजनेस (कुल बिजनेस - नया बिजनेस)
-  let oldBusiness = totalTeamBiz - newBusinessAfterDate;
-  if (oldBusiness < 0) oldBusiness = 0;
+  // नए डेटा से टोटल कमीशन उठाएं (अगर नहीं है तो 0)
+  const commSnap = await get(ref(db, PORTAL_COMMISSION_PATH));
+  let totalComm = 0;
+  if (commSnap.exists()) {
+    totalComm = Number(commSnap.val().totalCommission || 0);
+  }
 
-  // 6. कमीशन (सिर्फ नए बिजनेस का 10%)
-  const totalComm = newBusinessAfterDate * 0.10;
+  // पेंडिंग और टोटल विड्रॉल (नए पाथ से)
+  let pendingWithdrawal = 0;
+  let totalWithdrawn = 0;
+  let totalCommissionLeft = totalComm;
 
-  // 7. UI में डेटा भरें
-  $("totalBusiness").textContent = usdt(totalTeamBiz); // कुल टीम बिजनेस (1500)
-  $("totalCommission").textContent = usdt(totalComm); // 10% कमीशन (20 का 10% = 2)
-  $("availableBalance").textContent = usdt(availableBal);
-  $("pendingAmount").textContent = usdt(userData.pendingWithdrawal || 0);
-  $("totalWithdrawn").textContent = usdt(userData.totalWithdrawn || 0);
-  $("teamCount").textContent = totalTeamMembers.toLocaleString(); // 45
-  $("withdrawAvailable").textContent = usdt(availableBal);
+  const wdSnap = await get(ref(db, PORTAL_WITHDRAWAL_PATH));
+  if (wdSnap.exists()) {
+    const withdrawals = Object.values(wdSnap.val());
+    withdrawals.forEach(wd => {
+      if (wd.status === "PENDING") {
+        pendingWithdrawal += Number(wd.amount);
+      } else if (wd.status === "PAID") {
+        totalWithdrawn += Number(wd.amount);
+      }
+      // PAID और PENDING दोनों को कमीशन से माइनस करें
+      if (wd.status === "PENDING" || wd.status === "PAID") {
+        totalCommissionLeft -= Number(wd.amount);
+      }
+    });
+  }
 
-  // 8. लेवल कार्ड्स (अगर डेटाबेस में levels नहीं हैं, तो हम इसे छुपा देंगे या सिर्फ टोटल दिखाएंगे)
-  // चूँकि आपने कहा है कि लेवल नहीं दिखाना है, तो हम इसे खाली कर देंगे
+  // अगर कमीशन लेफ्ट 0 से कम हो जाए तो उसे 0 कर दें
+  if (totalCommissionLeft < 0) totalCommissionLeft = 0;
+
+  // UI में डेटा भरें
+  $("totalBusiness").textContent = usdt(totalTeamBiz); 
+  $("totalCommission").textContent = usdt(totalCommissionLeft); // बचा हुआ कमीशन
+  $("availableBalance").textContent = usdt(totalCommissionLeft); // विड्रॉल के लिए उपलब्ध
+  $("pendingAmount").textContent = usdt(pendingWithdrawal);
+  $("totalWithdrawn").textContent = usdt(totalWithdrawn);
+  $("teamCount").textContent = totalTeamMembers.toLocaleString();
+  $("withdrawAvailable").textContent = usdt(totalCommissionLeft);
+
+  // लेवल कार्ड्स (सिर्फ बिजनेस और टीम)
   $("levelCards").innerHTML = `
-    <div style="grid-column: 1 / -1; padding: 20px; background: #101f31; border: 1px solid #22354d; border-radius: 13px; text-align: center;">
-      <p style="color: #8da2bb; font-size: 14px; margin: 0;">आपका टोटल टीम बिजनेस: <strong>${usdt(totalTeamBiz)}</strong> है।</p>
-      <p style="color: #31d69a; font-size: 14px; margin: 5px 0 0 0;">12 Nov 2026 के बाद का बिजनेस: <strong>${usdt(newBusinessAfterDate)}</strong> (इसका 10% = ${usdt(totalComm)})</p>
-      <p style="color: #8da2bb; font-size: 12px; margin: 5px 0 0 0;">(पुराना बिजनेस: ${usdt(oldBusiness)} को छोड़ दिया गया है)</p>
+    <div style="grid-column: 1 / -1; padding: 20px; background: #101f31; border: 1px solid #22354d; border-radius: 13px;">
+      <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+        <span style="color: #8da2bb;">कुल टीम बिजनेस:</span>
+        <strong style="color: #edf4ff;">${usdt(totalTeamBiz)}</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+        <span style="color: #31d69a;">टोटल कमीशन (10%):</span>
+        <strong style="color: #31d69a;">${usdt(totalComm)}</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between; border-top: 1px solid #22354d; padding-top: 10px;">
+        <span style="color: #8da2bb;">विड्रॉल के बाद बचा कमीशन:</span>
+        <strong style="color: #31d69a;">${usdt(totalCommissionLeft)}</strong>
+      </div>
     </div>
   `;
 }
 
-// --- 6. विड्रॉल लॉजिक (50 USDT लिमिट) ---
+// --- 6. विड्रॉल लॉजिक (50 USDT लिमिट और नए डेटा पाथ के साथ) ---
 $("withdrawForm").addEventListener("submit", async e=>{
   e.preventDefault(); 
   const msg=$("withdrawMessage"); 
@@ -184,7 +208,36 @@ $("withdrawForm").addEventListener("submit", async e=>{
   const amount=Number($("withdrawAmount").value), wallet=$("walletAddress").value.trim();
   
   if (!Number.isFinite(amount)||amount<=0) {msg.textContent="Enter a valid amount.";return;}
-  if (amount < MIN_WITHDRAWAL) {msg.textContent=`न्यूनतम विड्रॉल राशि ${MIN_WITHDRAWAL} USDT है।`;return;}
+  
+  // 1. टोटल कमीशन चेक करें
+  const commSnap = await get(ref(db, PORTAL_COMMISSION_PATH));
+  let totalComm = 0;
+  if (commSnap.exists()) {
+    totalComm = Number(commSnap.val().totalCommission || 0);
+  }
+
+  // पेंडिंग और पेड विड्रॉल को कमीशन से माइनस करें
+  let totalCommissionLeft = totalComm;
+  const wdSnap = await get(ref(db, PORTAL_WITHDRAWAL_PATH));
+  if (wdSnap.exists()) {
+    const withdrawals = Object.values(wdSnap.val());
+    withdrawals.forEach(wd => {
+      if (wd.status === "PENDING" || wd.status === "PAID") {
+        totalCommissionLeft -= Number(wd.amount);
+      }
+    });
+  }
+
+  if (totalCommissionLeft < MIN_WITHDRAWAL) {
+    msg.textContent = `आपका कुल उपलब्ध कमीशन ${usdt(totalCommissionLeft)} है, जो न्यूनतम विड्रॉल राशि ${MIN_WITHDRAWAL} USDT से कम है।`;
+    return;
+  }
+
+  if (amount > totalCommissionLeft) {
+    msg.textContent = `आप अधिकतम ${usdt(totalCommissionLeft)} विड्रॉल कर सकते हैं।`;
+    return;
+  }
+
   if (!/^0x[a-fA-F0-9]{40}$/.test(wallet)) {msg.textContent="Enter a valid BEP20 wallet address.";return;}
   if (!$("confirmWithdrawal").checked) {msg.textContent="Please confirm details.";return;}
   
@@ -192,14 +245,8 @@ $("withdrawForm").addEventListener("submit", async e=>{
     const user=auth.currentUser;
     if (!user || !authorized(user)) throw new Error("Access denied.");
     
-    // बैलेंस चेक करें
-    const userSnap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
-    const available = Number(userSnap.val()?.availableReward || 0);
-    
-    if(amount > available) throw new Error("Requested amount is greater than the available balance.");
-    
-    // विड्रॉल रिक्वेस्ट 'withdrawals' फोल्डर में भेजें
-    const reqRef=push(ref(db,`withdrawals/${EXCLUSIVE_UID}`));
+    // 2. नए पाथ पर विड्रॉल रिक्वेस्ट भेजें
+    const reqRef=push(ref(db, PORTAL_WITHDRAWAL_PATH));
     await set(reqRef,{
       requestId:reqRef.key, uid:EXCLUSIVE_UID, userName:"Jai Prakash", userEmail:EXCLUSIVE_EMAIL,
       amount, walletAddress:wallet, network:"BEP20", status:"PENDING", createdAt:serverTimestamp()
@@ -209,22 +256,24 @@ $("withdrawForm").addEventListener("submit", async e=>{
     msg.textContent="Request submitted. Request ID: "+reqRef.key;
     $("withdrawForm").reset(); 
     await loadUserWithdrawals();
+    await loadSummary(); // डेटा रिफ्रेश करें
+    
   } catch(err) {
     msg.style.color = "#ff7474";
     msg.textContent=err.message||"Could not submit request.";
   }
 });
 
-// --- 7. विड्रॉल हिस्ट्री ---
+// --- 7. विड्रॉल हिस्ट्री (नए पाथ से) ---
 async function loadUserWithdrawals(){
-  const snap=await get(ref(db,`withdrawals/${EXCLUSIVE_UID}`));
+  const snap=await get(ref(db, PORTAL_WITHDRAWAL_PATH));
   if(!snap.exists()){$("withdrawalHistory").innerHTML='<p class="empty-state">अभी कोई विड्रॉल रिक्वेस्ट नहीं है।</p>';return;}
   const rows=Object.values(snap.val()).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   $("withdrawalHistory").innerHTML=tableHtml(rows,false);
 }
 
 async function loadAdminRequests(){
-  const snap=await get(ref(db,`withdrawals/${EXCLUSIVE_UID}`));
+  const snap=await get(ref(db, PORTAL_WITHDRAWAL_PATH));
   if(!snap.exists()){$("withdrawalHistory").innerHTML='<p class="empty-state">अभी कोई विड्रॉल रिक्वेस्ट नहीं है।</p>';return;}
   const rows=Object.values(snap.val()).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   $("withdrawalHistory").innerHTML=tableHtml(rows,true);
@@ -237,7 +286,7 @@ function tableHtml(rows,admin){
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function dateText(ts){return ts?new Date(ts).toLocaleString("en-IN",{timeZone:"Asia/Kolkata"}):"Time pending";}
 
-// --- 8. एडमिन एक्शन्स ---
+// --- 8. एडमिन एक्शन्स (नए पाथ पर) ---
 document.addEventListener("click",async e=>{
   const copy=e.target.closest("[data-copy]");
   if(copy){await navigator.clipboard.writeText(copy.dataset.copy);copy.textContent="Copied";return;}
@@ -246,7 +295,7 @@ document.addEventListener("click",async e=>{
   if(!paid&&!reject)return;
   if(currentRole!=="admin"||auth.currentUser?.email!==ADMIN_EMAIL)return;
   const id=(paid||reject).dataset.paid||(paid||reject).dataset.reject;
-  const itemRef=ref(db,`withdrawals/${EXCLUSIVE_UID}/${id}`);
+  const itemRef=ref(db,`${PORTAL_WITHDRAWAL_PATH}/${id}`);
   const snap=await get(itemRef); if(!snap.exists()||snap.val().status!=="PENDING"){alert("यह रिक्वेस्ट पहले ही प्रोसेस हो चुकी है।");return;}
   
   if(paid){
@@ -261,4 +310,23 @@ document.addEventListener("click",async e=>{
     await update(itemRef,{status:"REJECTED",rejectionReason:reason,processedAt:Date.now(),processedBy:auth.currentUser.uid});
   }
   await loadAdminRequests();
+  await loadSummary();
 });
+
+// --- 9. कमीशन सेव करने का लॉजिक (जब भी नया बिजनेस आए) ---
+// चूँकि आपने कहा है कि जब भी नीचे कोई आईडी लगे तो टोटल कमीशन अपडेट हो जाए,
+// हम एक फंक्शन बनाते हैं जो इसे हैंडल करेगा। (आप इसे किसी बटन या ट्रिगर से कॉल कर सकते हैं)
+async function updateSpecialCommission(newBusinessAmount) {
+  const newCommission = newBusinessAmount * 0.10; // 10%
+  const commRef = ref(db, PORTAL_COMMISSION_PATH);
+  const snap = await get(commRef);
+  let currentComm = 0;
+  if (snap.exists()) {
+    currentComm = Number(snap.val().totalCommission || 0);
+  }
+  await set(commRef, { totalCommission: currentComm + newCommission });
+  await loadSummary();
+}
+
+// उदाहरण: अगर आपको मैन्युअली कमीशन जोड़ना है, तो आप कंसोल में यह चला सकते हैं:
+// updateSpecialCommission(100); // 100 USDT के बिजनेस पर 10 USDT कमीशन जुड़ जाएगा।
