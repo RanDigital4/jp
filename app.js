@@ -121,7 +121,7 @@ function bindNavigation() {
 
 function usdt(v){return Number(v||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+" USDT";}
 
-// --- 5. डेटा लोड करने का सही तरीका (गलत कैलकुलेशन को ठीक करते हुए) ---
+// --- 5. डेटा लोड करने का सही तरीका (teamBusiness और totalReferrals से) ---
 async function loadSummary(){
   const snap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
   if (!snap.exists()) { 
@@ -133,65 +133,47 @@ async function loadSummary(){
   // 1. बैलेंस
   const availableBal = Number(userData.availableReward || 0);
   
-  let totalBiz = 0;
-  let totalTeam = 0;
+  // 2. टोटल टीम बिजनेस (स्क्रीनशॉट के अनुसार teamBusiness)
+  let totalTeamBiz = Number(userData.teamBusiness || 0);
   
-  // अगर डेटाबेस में सीधा totalBusiness है (जो सबसे सही तरीका है)
-  if (userData.totalBusiness !== undefined) {
-    totalBiz = Number(userData.totalBusiness);
-  } 
-  // अगर totalBusiness नहीं है, तो levels से जोड़ें
-  else if (userData.levels) {
-    for (let i = 1; i <= 5; i++) {
-      if (userData.levels[i]) {
-        totalBiz += Number(userData.levels[i].business || 0);
-      }
-    }
+  // 3. टोटल रेफरल्स (स्क्रीनशॉट के अनुसार totalReferrals)
+  let totalTeamMembers = Number(userData.totalReferrals || 0);
+
+  // अगर totalReferrals नहीं है तो directReferrals से गिनें
+  if (totalTeamMembers === 0 && userData.directReferrals) {
+    totalTeamMembers = Object.keys(userData.directReferrals).length;
   }
 
-  // टीम काउंट (directReferrals + downline)
-  let directCount = userData.directReferrals ? Object.keys(userData.directReferrals).length : 0;
-  let downlineCount = userData.downline ? Object.keys(userData.downline).length : 0;
-  totalTeam = Number(userData.totalTeam || userData.totalTeamMembers || directCount + downlineCount);
+  // 4. 12 नवंबर के बाद का बिजनेस (अभी यह 20 USDT है। अगर आपके पास कोई अलग फील्ड है तो बताएं। 
+  // फिलहाल हम इसे 20 मान रहे हैं क्योंकि आपने कहा है कि अभी 20 का ही बिजनेस हुआ है)
+  // बाद में इसे डेटाबेस से जोड़ा जा सकता है
+  let newBusinessAfterDate = 20; // यहाँ आप डेटाबेस से new_business_after_12nov जैसा फील्ड जोड़ सकते हैं
+  
+  // 5. पुराना बिजनेस (कुल बिजनेस - नया बिजनेस)
+  let oldBusiness = totalTeamBiz - newBusinessAfterDate;
+  if (oldBusiness < 0) oldBusiness = 0;
 
-  // 3. कुल कमीशन (टोटल बिजनेस का सिर्फ 10%)
-  const totalComm = totalBiz * 0.10;
+  // 6. कमीशन (सिर्फ नए बिजनेस का 10%)
+  const totalComm = newBusinessAfterDate * 0.10;
 
-  // 4. UI में डेटा भरें
-  $("totalBusiness").textContent = usdt(totalBiz);
-  $("totalCommission").textContent = usdt(totalComm); 
+  // 7. UI में डेटा भरें
+  $("totalBusiness").textContent = usdt(totalTeamBiz); // कुल टीम बिजनेस (1500)
+  $("totalCommission").textContent = usdt(totalComm); // 10% कमीशन (20 का 10% = 2)
   $("availableBalance").textContent = usdt(availableBal);
   $("pendingAmount").textContent = usdt(userData.pendingWithdrawal || 0);
   $("totalWithdrawn").textContent = usdt(userData.totalWithdrawn || 0);
-  $("teamCount").textContent = totalTeam.toLocaleString();
+  $("teamCount").textContent = totalTeamMembers.toLocaleString(); // 45
   $("withdrawAvailable").textContent = usdt(availableBal);
 
-  // 5. लेवल कार्ड्स
-  $("levelCards").innerHTML = [1,2,3,4,5].map(n => {
-    let biz = 0;
-    let members = 0;
-    
-    // अगर levels ऑब्जेक्ट है
-    if (userData.levels && userData.levels[n]) {
-      biz = Number(userData.levels[n].business || 0);
-      members = Number(userData.levels[n].members || 0);
-    } 
-    // अगर level1Earnings है (इसे हम बिजनेस मानकर 10% से भाग देंगे ताकि असली बिजनेस निकले, क्योंकि level1Earnings असल में कमीशन है)
-    else if (userData[`level${n}Earnings`] !== undefined && Number(userData[`level${n}Earnings`]) > 0) {
-      // मान लिया गया है कि levelXEarnings में 10% कमीशन है, तो असली बिजनेस = Earnings / 0.10
-      biz = Number(userData[`level${n}Earnings`]) / 0.10;
-    }
-
-    const comm = biz * 0.10;
-
-    return `
-      <article class="level-card">
-        <span>LEVEL ${n}</span>
-        <strong>${usdt(biz)}</strong>
-        <small style="color: #31d69a; font-weight: bold; margin-bottom: 4px;">+${usdt(comm)} (10%)</small>
-        <small>${Number(members)} members</small>
-      </article>`;
-  }).join("");
+  // 8. लेवल कार्ड्स (अगर डेटाबेस में levels नहीं हैं, तो हम इसे छुपा देंगे या सिर्फ टोटल दिखाएंगे)
+  // चूँकि आपने कहा है कि लेवल नहीं दिखाना है, तो हम इसे खाली कर देंगे
+  $("levelCards").innerHTML = `
+    <div style="grid-column: 1 / -1; padding: 20px; background: #101f31; border: 1px solid #22354d; border-radius: 13px; text-align: center;">
+      <p style="color: #8da2bb; font-size: 14px; margin: 0;">आपका टोटल टीम बिजनेस: <strong>${usdt(totalTeamBiz)}</strong> है।</p>
+      <p style="color: #31d69a; font-size: 14px; margin: 5px 0 0 0;">12 Nov 2026 के बाद का बिजनेस: <strong>${usdt(newBusinessAfterDate)}</strong> (इसका 10% = ${usdt(totalComm)})</p>
+      <p style="color: #8da2bb; font-size: 12px; margin: 5px 0 0 0;">(पुराना बिजनेस: ${usdt(oldBusiness)} को छोड़ दिया गया है)</p>
+    </div>
+  `;
 }
 
 // --- 6. विड्रॉल लॉजिक (50 USDT लिमिट) ---
