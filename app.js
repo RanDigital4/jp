@@ -18,7 +18,7 @@ const auth = getAuth(app);
 const db = getDatabase(app);
 
 // --- 2. ग्लोबल वेरिएबल्स ---
-const EXCLUSIVE_UID = "aBRccJ156ORXlTkBWbC2JZqwPJJ2"; // सही UID (I = capital i)
+const EXCLUSIVE_UID = "aBRccJ156ORXlTkBWbC2JZqwPJJ2"; 
 const EXCLUSIVE_EMAIL = "jaiprakash9129000+1@gmail.com";
 const ADMIN_EMAIL = "randigital4@gmail.com";
 const MIN_WITHDRAWAL = 50; // न्यूनतम 50 USDT
@@ -121,7 +121,7 @@ function bindNavigation() {
 
 function usdt(v){return Number(v||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+" USDT";}
 
-// --- 5. डेटा लोड करने का स्मार्ट तरीका (नए निर्देशों के अनुसार) ---
+// --- 5. डेटा लोड करने का सही तरीका (गलत कैलकुलेशन को ठीक करते हुए) ---
 async function loadSummary(){
   const snap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
   if (!snap.exists()) { 
@@ -133,35 +133,28 @@ async function loadSummary(){
   // 1. बैलेंस
   const availableBal = Number(userData.availableReward || 0);
   
-  // 2. लेवल वाइज डेटा कैलकुलेशन
-  let lvlBusiness = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-  let lvlMembers = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
   let totalBiz = 0;
   let totalTeam = 0;
-
-  // लूप चलाकर हर लेवल का डेटा निकालें
-  for (let i = 1; i <= 5; i++) {
-    // अगर डेटाबेस में level1Earnings है
-    if (userData[`level${i}Earnings`] !== undefined) {
-      lvlBusiness[i] = Number(userData[`level${i}Earnings`] || 0);
+  
+  // अगर डेटाबेस में सीधा totalBusiness है (जो सबसे सही तरीका है)
+  if (userData.totalBusiness !== undefined) {
+    totalBiz = Number(userData.totalBusiness);
+  } 
+  // अगर totalBusiness नहीं है, तो levels से जोड़ें
+  else if (userData.levels) {
+    for (let i = 1; i <= 5; i++) {
+      if (userData.levels[i]) {
+        totalBiz += Number(userData.levels[i].business || 0);
+      }
     }
-    // अगर levels ऑब्जेक्ट है
-    else if (userData.levels && userData.levels[i]) {
-      lvlBusiness[i] = Number(userData.levels[i].business || 0);
-      lvlMembers[i] = Number(userData.levels[i].members || 0);
-    }
-
-    // टीम मेंबर काउंट (अगर डेटाबेस में level1Team जैसा कुछ है)
-    if (userData[`level${i}Team`] !== undefined) {
-      lvlMembers[i] = Number(userData[`level${i}Team`] || 0);
-    }
-
-    // टोटल बिजनेस और टीम में जोड़ें
-    totalBiz += lvlBusiness[i];
-    totalTeam += lvlMembers[i];
   }
 
-  // 3. कुल कमीशन (कुल बिजनेस का सिर्फ 10%)
+  // टीम काउंट (directReferrals + downline)
+  let directCount = userData.directReferrals ? Object.keys(userData.directReferrals).length : 0;
+  let downlineCount = userData.downline ? Object.keys(userData.downline).length : 0;
+  totalTeam = Number(userData.totalTeam || userData.totalTeamMembers || directCount + downlineCount);
+
+  // 3. कुल कमीशन (टोटल बिजनेस का सिर्फ 10%)
   const totalComm = totalBiz * 0.10;
 
   // 4. UI में डेटा भरें
@@ -173,11 +166,23 @@ async function loadSummary(){
   $("teamCount").textContent = totalTeam.toLocaleString();
   $("withdrawAvailable").textContent = usdt(availableBal);
 
-  // 5. लेवल कार्ड्स को अपडेट करें (बिजनेस, 10% कमीशन, और टीम मेंबर के साथ)
+  // 5. लेवल कार्ड्स
   $("levelCards").innerHTML = [1,2,3,4,5].map(n => {
-    const biz = lvlBusiness[n];
+    let biz = 0;
+    let members = 0;
+    
+    // अगर levels ऑब्जेक्ट है
+    if (userData.levels && userData.levels[n]) {
+      biz = Number(userData.levels[n].business || 0);
+      members = Number(userData.levels[n].members || 0);
+    } 
+    // अगर level1Earnings है (इसे हम बिजनेस मानकर 10% से भाग देंगे ताकि असली बिजनेस निकले, क्योंकि level1Earnings असल में कमीशन है)
+    else if (userData[`level${n}Earnings`] !== undefined && Number(userData[`level${n}Earnings`]) > 0) {
+      // मान लिया गया है कि levelXEarnings में 10% कमीशन है, तो असली बिजनेस = Earnings / 0.10
+      biz = Number(userData[`level${n}Earnings`]) / 0.10;
+    }
+
     const comm = biz * 0.10;
-    const members = lvlMembers[n];
 
     return `
       <article class="level-card">
@@ -205,11 +210,13 @@ $("withdrawForm").addEventListener("submit", async e=>{
     const user=auth.currentUser;
     if (!user || !authorized(user)) throw new Error("Access denied.");
     
+    // बैलेंस चेक करें
     const userSnap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
     const available = Number(userSnap.val()?.availableReward || 0);
     
     if(amount > available) throw new Error("Requested amount is greater than the available balance.");
     
+    // विड्रॉल रिक्वेस्ट 'withdrawals' फोल्डर में भेजें
     const reqRef=push(ref(db,`withdrawals/${EXCLUSIVE_UID}`));
     await set(reqRef,{
       requestId:reqRef.key, uid:EXCLUSIVE_UID, userName:"Jai Prakash", userEmail:EXCLUSIVE_EMAIL,
