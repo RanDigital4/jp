@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
-import { getDatabase, ref, get, push, set, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
+import { getDatabase, ref, get, set, update, push, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
 
 // --- 1. Firebase कॉन्फ़िगरेशन ---
 const firebaseConfig = {
@@ -22,6 +22,7 @@ const EXCLUSIVE_UID = "aBRccJ156ORXlTkBWbC2JZqwPJJ2";
 const EXCLUSIVE_EMAIL = "jaiprakash9129000+1@gmail.com";
 const ADMIN_EMAIL = "randigital4@gmail.com";
 const MIN_WITHDRAWAL = 50; // न्यूनतम 50 USDT
+const OLD_BUSINESS = 1480; // 12 नवंबर से पहले का पुराना बिजनेस (1500 - 20)
 const $ = id => document.getElementById(id);
 let currentRole = null;
 
@@ -104,7 +105,8 @@ onAuthStateChanged(auth, async user => {
     $("cutoffNotice").classList.toggle("hidden", currentRole === "admin");
     
     bindNavigation();
-    await loadSummary();
+    await autoSyncCommission(); // पहले कमीशन को सिंक करें
+    await loadSummary();        // फिर डेटा लोड करें
     if (currentRole === "admin") await loadAdminRequests();
     else await loadUserWithdrawals();
     
@@ -125,9 +127,57 @@ function bindNavigation() {
 
 function usdt(v){return Number(v||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+" USDT";}
 
-// --- 5. डेटा लोड करने का सही तरीका (नए डेटा पाथ के साथ) ---
+// --- 5. ऑटो-सिंक कमीशन (सिर्फ नए 20 USDT का 10% सेव करेगा) ---
+async function autoSyncCommission(){
+  // 1. असली डेटा से teamBusiness उठाएं
+  const userSnap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
+  if (!userSnap.exists()) return;
+  
+  const currentTeamBusiness = Number(userSnap.val().teamBusiness || 0);
+  
+  // 2. अब तक का सेव किया हुआ कमीशन और पुराना बिजनेस चेक करें
+  const commSnap = await get(ref(db, PORTAL_COMMISSION_PATH));
+  let savedCommission = 0;
+  let lastTeamBusiness = 0;
+  
+  if (commSnap.exists()) {
+    savedCommission = Number(commSnap.val().totalCommission || 0);
+    lastTeamBusiness = Number(commSnap.val().lastTeamBusiness || 0);
+  }
+
+  // 3. अगर पहली बार चल रहा है (lastTeamBusiness 0 है)
+  if (lastTeamBusiness === 0) {
+    // पुराना बिजनेस 1480 है, तो नया बिजनेस = currentTeamBusiness - 1480
+    let newBusiness = currentTeamBusiness - OLD_BUSINESS;
+    if (newBusiness < 0) newBusiness = 0;
+    
+    // अगर नया बिजनेस 20 है, तो कमीशन 2 होगा
+    const newCommission = newBusiness * 0.10;
+    
+    await set(ref(db, PORTAL_COMMISSION_PATH), {
+      totalCommission: newCommission,
+      lastTeamBusiness: currentTeamBusiness, 
+      lastUpdated: serverTimestamp()
+    });
+    console.log(`पहली बार सेटअप: पुराना बिजनेस ${OLD_BUSINESS}, नया बिजनेस ${newBusiness}, कमीशन ${newCommission}`);
+  } 
+  // 4. अगर बाद में teamBusiness बढ़ा है
+  else if (currentTeamBusiness > lastTeamBusiness) {
+    const businessGrowth = currentTeamBusiness - lastTeamBusiness;
+    const newCommission = businessGrowth * 0.10;
+    
+    await set(ref(db, PORTAL_COMMISSION_PATH), {
+      totalCommission: savedCommission + newCommission,
+      lastTeamBusiness: currentTeamBusiness,
+      lastUpdated: serverTimestamp()
+    });
+    console.log(`नया बिजनेस जोड़ा गया: ${businessGrowth}, नया कमीशन जोड़ा गया: ${newCommission}`);
+  }
+}
+
+// --- 6. डेटा लोड करने का तरीका ---
 async function loadSummary(){
-  // पुराने डेटा से सिर्फ टीम बिजनेस और रेफरल उठाएं
+  // टीम बिजनेस और रेफरल
   const snap = await get(ref(db, `users/${EXCLUSIVE_UID}`));
   let totalTeamBiz = 0;
   let totalTeamMembers = 0;
@@ -141,14 +191,14 @@ async function loadSummary(){
     }
   }
 
-  // नए डेटा से टोटल कमीशन उठाएं (अगर नहीं है तो 0)
+  // टोटल कमीशन
   const commSnap = await get(ref(db, PORTAL_COMMISSION_PATH));
   let totalComm = 0;
   if (commSnap.exists()) {
     totalComm = Number(commSnap.val().totalCommission || 0);
   }
 
-  // पेंडिंग और टोटल विड्रॉल (नए पाथ से)
+  // पेंडिंग और टोटल विड्रॉल
   let pendingWithdrawal = 0;
   let totalWithdrawn = 0;
   let totalCommissionLeft = totalComm;
@@ -162,26 +212,24 @@ async function loadSummary(){
       } else if (wd.status === "PAID") {
         totalWithdrawn += Number(wd.amount);
       }
-      // PAID और PENDING दोनों को कमीशन से माइनस करें
       if (wd.status === "PENDING" || wd.status === "PAID") {
         totalCommissionLeft -= Number(wd.amount);
       }
     });
   }
 
-  // अगर कमीशन लेफ्ट 0 से कम हो जाए तो उसे 0 कर दें
   if (totalCommissionLeft < 0) totalCommissionLeft = 0;
 
   // UI में डेटा भरें
   $("totalBusiness").textContent = usdt(totalTeamBiz); 
-  $("totalCommission").textContent = usdt(totalCommissionLeft); // बचा हुआ कमीशन
-  $("availableBalance").textContent = usdt(totalCommissionLeft); // विड्रॉल के लिए उपलब्ध
+  $("totalCommission").textContent = usdt(totalCommissionLeft); 
+  $("availableBalance").textContent = usdt(totalCommissionLeft); 
   $("pendingAmount").textContent = usdt(pendingWithdrawal);
   $("totalWithdrawn").textContent = usdt(totalWithdrawn);
   $("teamCount").textContent = totalTeamMembers.toLocaleString();
   $("withdrawAvailable").textContent = usdt(totalCommissionLeft);
 
-  // लेवल कार्ड्स (सिर्फ बिजनेस और टीम)
+  // लेवल कार्ड्स
   $("levelCards").innerHTML = `
     <div style="grid-column: 1 / -1; padding: 20px; background: #101f31; border: 1px solid #22354d; border-radius: 13px;">
       <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
@@ -200,7 +248,7 @@ async function loadSummary(){
   `;
 }
 
-// --- 6. विड्रॉल लॉजिक (50 USDT लिमिट और नए डेटा पाथ के साथ) ---
+// --- 7. विड्रॉल लॉजिक (50 USDT लिमिट) ---
 $("withdrawForm").addEventListener("submit", async e=>{
   e.preventDefault(); 
   const msg=$("withdrawMessage"); 
@@ -209,14 +257,12 @@ $("withdrawForm").addEventListener("submit", async e=>{
   
   if (!Number.isFinite(amount)||amount<=0) {msg.textContent="Enter a valid amount.";return;}
   
-  // 1. टोटल कमीशन चेक करें
   const commSnap = await get(ref(db, PORTAL_COMMISSION_PATH));
   let totalComm = 0;
   if (commSnap.exists()) {
     totalComm = Number(commSnap.val().totalCommission || 0);
   }
 
-  // पेंडिंग और पेड विड्रॉल को कमीशन से माइनस करें
   let totalCommissionLeft = totalComm;
   const wdSnap = await get(ref(db, PORTAL_WITHDRAWAL_PATH));
   if (wdSnap.exists()) {
@@ -245,7 +291,6 @@ $("withdrawForm").addEventListener("submit", async e=>{
     const user=auth.currentUser;
     if (!user || !authorized(user)) throw new Error("Access denied.");
     
-    // 2. नए पाथ पर विड्रॉल रिक्वेस्ट भेजें
     const reqRef=push(ref(db, PORTAL_WITHDRAWAL_PATH));
     await set(reqRef,{
       requestId:reqRef.key, uid:EXCLUSIVE_UID, userName:"Jai Prakash", userEmail:EXCLUSIVE_EMAIL,
@@ -256,7 +301,7 @@ $("withdrawForm").addEventListener("submit", async e=>{
     msg.textContent="Request submitted. Request ID: "+reqRef.key;
     $("withdrawForm").reset(); 
     await loadUserWithdrawals();
-    await loadSummary(); // डेटा रिफ्रेश करें
+    await loadSummary(); 
     
   } catch(err) {
     msg.style.color = "#ff7474";
@@ -264,7 +309,7 @@ $("withdrawForm").addEventListener("submit", async e=>{
   }
 });
 
-// --- 7. विड्रॉल हिस्ट्री (नए पाथ से) ---
+// --- 8. विड्रॉल हिस्ट्री ---
 async function loadUserWithdrawals(){
   const snap=await get(ref(db, PORTAL_WITHDRAWAL_PATH));
   if(!snap.exists()){$("withdrawalHistory").innerHTML='<p class="empty-state">अभी कोई विड्रॉल रिक्वेस्ट नहीं है।</p>';return;}
@@ -286,7 +331,7 @@ function tableHtml(rows,admin){
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function dateText(ts){return ts?new Date(ts).toLocaleString("en-IN",{timeZone:"Asia/Kolkata"}):"Time pending";}
 
-// --- 8. एडमिन एक्शन्स (नए पाथ पर) ---
+// --- 9. एडमिन एक्शन्स ---
 document.addEventListener("click",async e=>{
   const copy=e.target.closest("[data-copy]");
   if(copy){await navigator.clipboard.writeText(copy.dataset.copy);copy.textContent="Copied";return;}
@@ -312,21 +357,3 @@ document.addEventListener("click",async e=>{
   await loadAdminRequests();
   await loadSummary();
 });
-
-// --- 9. कमीशन सेव करने का लॉजिक (जब भी नया बिजनेस आए) ---
-// चूँकि आपने कहा है कि जब भी नीचे कोई आईडी लगे तो टोटल कमीशन अपडेट हो जाए,
-// हम एक फंक्शन बनाते हैं जो इसे हैंडल करेगा। (आप इसे किसी बटन या ट्रिगर से कॉल कर सकते हैं)
-async function updateSpecialCommission(newBusinessAmount) {
-  const newCommission = newBusinessAmount * 0.10; // 10%
-  const commRef = ref(db, PORTAL_COMMISSION_PATH);
-  const snap = await get(commRef);
-  let currentComm = 0;
-  if (snap.exists()) {
-    currentComm = Number(snap.val().totalCommission || 0);
-  }
-  await set(commRef, { totalCommission: currentComm + newCommission });
-  await loadSummary();
-}
-
-// उदाहरण: अगर आपको मैन्युअली कमीशन जोड़ना है, तो आप कंसोल में यह चला सकते हैं:
-// updateSpecialCommission(100); // 100 USDT के बिजनेस पर 10 USDT कमीशन जुड़ जाएगा।
